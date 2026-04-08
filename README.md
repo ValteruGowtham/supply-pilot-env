@@ -86,11 +86,13 @@ openenv validate
 
 ## Baseline Scores
 
-| Task | Difficulty | Baseline Score |
-|------|-----------|---------------|
-| task_1 | Easy | TBD |
-| task_2 | Medium | TBD |
-| task_3 | Hard | TBD |
+Scores below are from a simple heuristic agent (order 150 units when stock < 100, switch to backup on disruption):
+
+| Task | Difficulty | Baseline Score | Notes |
+|------|-----------|---------------|-------|
+| task_1 | Easy | 0.867 | 4 stockout days / 30 |
+| task_2 | Medium | 0.391 | Multi-SKU budget constraint is tight |
+| task_3 | Hard | 0.943 | Agent switches to backup on disruption signal |
 
 ## Author
 Gowtham1111

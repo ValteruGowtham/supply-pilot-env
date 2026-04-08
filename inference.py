@@ -64,10 +64,14 @@ def log_step(step: int, action: str, reward: float, done: bool, error) -> None:
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score_or_rewards=None, rewards: List[float] = None) -> None:
+    # Accepts either (success, steps, rewards) or legacy (success, steps, score, rewards)
+    # score is accepted but intentionally NOT emitted in the [END] line
+    if rewards is None:
+        rewards = score_or_rewards if isinstance(score_or_rewards, list) else []
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
         flush=True,
     )
 
@@ -213,7 +217,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
         print(f"[DEBUG] Task {task_id} error: {e}", flush=True)
 
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
     return score
 
