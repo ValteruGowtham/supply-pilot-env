@@ -18,7 +18,9 @@ from openai import OpenAI
 # Environment variables
 # ---------------------------------------------------------------------------
 
-API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+HF_TOKEN: str = os.getenv("HF_TOKEN")
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN environment variable is required")
 API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
@@ -227,7 +229,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     # Import env client — dual-import for installed vs direct-run contexts
     try:
