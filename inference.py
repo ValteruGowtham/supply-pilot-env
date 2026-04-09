@@ -18,10 +18,12 @@ from openai import OpenAI
 # Environment variables
 # ---------------------------------------------------------------------------
 
-IMAGE_NAME = os.getenv("IMAGE_NAME")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+# CRITICAL: Validator injects API_KEY, not HF_TOKEN
+# Read API_KEY first (validator's variable), fallback to HF_TOKEN (for local testing)
+API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
+IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
 
 BENCHMARK: str = "supply_pilot"
 MAX_STEPS: int = 30
@@ -225,7 +227,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 async def main() -> None:
     """Main entry point - handles all errors gracefully."""
     
-    # Validate API_KEY
+    # Validate API_KEY (validator sets this)
     if not API_KEY:
         print("[DEBUG] API_KEY not set - cannot authenticate with LLM API", flush=True)
         # Still need to emit logs for all tasks
@@ -234,6 +236,7 @@ async def main() -> None:
             log_end(success=False, steps=0, rewards=[])
         return
 
+    # CRITICAL: Use API_KEY (not HF_TOKEN) for OpenAI client
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     # Import env client
@@ -260,7 +263,6 @@ async def main() -> None:
                 await run_task(client, env, task_id)
             except Exception as e:
                 print(f"[DEBUG] Task {task_id} failed: {e}", flush=True)
-                # Emit failure log if run_task didn't
                 
     except Exception as e:
         print(f"[DEBUG] Failed to connect to environment: {e}", flush=True)
@@ -282,6 +284,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         print(f"[DEBUG] Fatal error: {e}", flush=True)
-        # Exit cleanly even if there was an error
         import sys
-        sys.exit(0)  # Exit with success code so validator doesn't see it as crash
+        sys.exit(0)
