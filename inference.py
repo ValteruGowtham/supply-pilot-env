@@ -18,10 +18,10 @@ from openai import OpenAI
 # Environment variables
 # ---------------------------------------------------------------------------
 
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
-IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
+IMAGE_NAME = os.getenv("IMAGE_NAME")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 BENCHMARK: str = "supply_pilot"
 MAX_STEPS: int = 30
@@ -225,16 +225,16 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 async def main() -> None:
     """Main entry point - handles all errors gracefully."""
     
-    # Validate HF_TOKEN
-    if not HF_TOKEN:
-        print("[DEBUG] HF_TOKEN not set - cannot authenticate with LLM API", flush=True)
+    # Validate API_KEY
+    if not API_KEY:
+        print("[DEBUG] API_KEY not set - cannot authenticate with LLM API", flush=True)
         # Still need to emit logs for all tasks
         for task_id in ["task_1", "task_2", "task_3"]:
             log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
             log_end(success=False, steps=0, rewards=[])
         return
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     # Import env client
     try:
