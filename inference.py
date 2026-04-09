@@ -18,12 +18,11 @@ from openai import OpenAI
 # Environment variables
 # ---------------------------------------------------------------------------
 
-HF_TOKEN: str = os.getenv("HF_TOKEN")
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN environment variable is required")
+API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
+LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME")
+HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
 
 BENCHMARK: str = "supply_pilot"
 MAX_STEPS: int = 30
@@ -229,24 +228,37 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
+    # Validate required env vars
+    if HF_TOKEN is None:
+        raise ValueError("HF_TOKEN environment variable is required")
+    
+    if LOCAL_IMAGE_NAME is None:
+        print("[DEBUG] LOCAL_IMAGE_NAME not set — cannot start environment", flush=True)
+        for task_id in ["task_1", "task_2", "task_3"]:
+            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
+
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
-    # Import env client — dual-import for installed vs direct-run contexts
     try:
         from supply_pilot_env.client import SupplyPilotEnv
     except ImportError:
         from client import SupplyPilotEnv  # type: ignore
 
-    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
-
+    env = None
     try:
+        env = await SupplyPilotEnv.from_docker_image(LOCAL_IMAGE_NAME)
         for task_id in ["task_1", "task_2", "task_3"]:
             await run_task(client, env, task_id)
+    except Exception as e:
+        print(f"[DEBUG] Fatal error in main: {e}", flush=True)
     finally:
-        try:
-            await env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+        if env is not None:
+            try:
+                await env.close()
+            except Exception as e:
+                print(f"[DEBUG] env.close() error: {e}", flush=True)
 
 
 if __name__ == "__main__":
