@@ -1,8 +1,5 @@
 """
 inference.py — SupplyPilot hackathon inference script.
-
-Runs an LLM agent against all three SupplyPilot tasks and emits the
-exact log format required by the Scaler x Meta OpenEnv hackathon scorer.
 """
 
 import asyncio
@@ -13,29 +10,25 @@ from typing import List, Optional
 
 from openai import OpenAI
 
-
 # ---------------------------------------------------------------------------
 # Environment variables
+# CRITICAL: Use os.environ[] for API_BASE_URL and API_KEY so the validator's
+# injected values are always used. Never fall back to other providers.
 # ---------------------------------------------------------------------------
-
-# CRITICAL: Validator injects API_KEY, not HF_TOKEN
-# Read API_KEY first (validator's variable), fallback to HF_TOKEN (for local testing)
-API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
-IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
+API_BASE_URL: str = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME: str = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_KEY: Optional[str] = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+IMAGE_NAME: Optional[str] = os.environ.get("IMAGE_NAME")
 
 BENCHMARK: str = "supply_pilot"
 MAX_STEPS: int = 30
 TEMPERATURE: float = 0.3
-MAX_TOKENS: int = 150
+MAX_TOKENS: int = 200
 SUCCESS_SCORE_THRESHOLD: float = 0.5
-
 
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
-
 SYSTEM_PROMPT: str = textwrap.dedent(
     """\
     You are a supply chain manager AI. You receive daily inventory data and must decide how to reorder stock.
@@ -48,16 +41,13 @@ SYSTEM_PROMPT: str = textwrap.dedent(
     Example: {"sku_id": "SKU_A", "order_quantity": 150, "supplier_id": "primary", "expedite": false}"""
 )
 
-
 # ---------------------------------------------------------------------------
-# Logging helpers  (format is exact — any deviation = disqualification)
+# Logging helpers
 # ---------------------------------------------------------------------------
-
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-
-def log_step(step: int, action: str, reward: float, done: bool, error) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
     print(
@@ -65,52 +55,40 @@ def log_step(step: int, action: str, reward: float, done: bool, error) -> None:
         flush=True,
     )
 
-
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
-
 
 # ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
-
 def build_user_prompt(obs, step: int) -> str:
     return (
         f"Day: {obs.day}\n"
         f"SKU: {obs.sku_id}\n"
         f"Current stock: {obs.stock_level} units\n"
         f"Today demand: {obs.daily_demand:.1f} units\n"
-        f"Pending orders: {obs.pending_order_units} units arriving in {obs.supplier_lead_time} days\n"
+        f"Pending orders: {obs.pending_order_units} units arriving in "
+        f"{obs.supplier_lead_time} days\n"
         f"Stockout today: {obs.stockout_today}\n"
         f"Supplier disruption active: {obs.disruption_active}\n"
-        f"Step: {step} of {MAX_STEPS}\n"
-        f"\n"
+        f"Step: {step} of {MAX_STEPS}\n\n"
         f"What is your reorder decision? Respond with JSON only."
     )
 
-
 # ---------------------------------------------------------------------------
-# LLM action
+# LLM action — logs errors, never silently fails
 # ---------------------------------------------------------------------------
-
 def get_action(client: OpenAI, obs, step: int) -> dict:
-    """
-    Query the LLM for a reorder decision.
-
-    Returns a dict with keys: sku_id, order_quantity, supplier_id, expedite.
-    Falls back to a safe default on any error so the episode can continue.
-    """
     _FALLBACK = {
         "sku_id": "SKU_A",
         "order_quantity": 100,
         "supplier_id": "primary",
         "expedite": False,
     }
-
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -123,36 +101,22 @@ def get_action(client: OpenAI, obs, step: int) -> dict:
             stream=False,
         )
         text = completion.choices[0].message.content.strip()
-
-        # Strip markdown code fences if the model wrapped the JSON
+        # Strip markdown fences if present
         if text.startswith("```"):
             lines = text.splitlines()
             text = "\n".join(
                 line for line in lines if not line.startswith("```")
             ).strip()
-
         return json.loads(text)
-
-    except Exception:
+    except Exception as e:
+        # Log the actual error so we can debug — do not silently swallow
+        print(f"[DEBUG] LLM call failed step={step}: {type(e).__name__}: {e}", flush=True)
         return _FALLBACK
-
 
 # ---------------------------------------------------------------------------
 # Single-task runner
 # ---------------------------------------------------------------------------
-
 async def run_task(client: OpenAI, env, task_id: str) -> float:
-    """
-    Run one full episode for the given task_id.
-
-    Args:
-        client:  Initialised OpenAI client.
-        env:     SupplyPilotEnv async WebSocket client.
-        task_id: One of "task_1", "task_2", "task_3".
-
-    Returns:
-        Normalised episode score in [0.0, 1.0].
-    """
     rewards: List[float] = []
     steps_taken: int = 0
     score: float = 0.0
@@ -161,7 +125,6 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        # Reset — task_id is forwarded to the server via **kwargs
         result = await env.reset(task_id=task_id)
 
         for step in range(1, MAX_STEPS + 1):
@@ -171,15 +134,12 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
             obs = result.observation
             action_dict = get_action(client, obs, step)
 
-            # Short action string for [STEP] log
             action_str = (
                 f"order={action_dict.get('order_quantity', 0)},"
                 f"sku={action_dict.get('sku_id', 'SKU_A')},"
                 f"supplier={action_dict.get('supplier_id', 'primary')}"
             )
 
-            # Import SupplyAction — dual-import so file works both installed
-            # and run directly from supply_pilot_env/ directory
             try:
                 from supply_pilot_env.models import SupplyAction
             except ImportError:
@@ -205,84 +165,47 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
             if done:
                 break
 
-        # Normalise score: max possible ≈ 0.5 reward/step × 30 steps = 15.0
         total_reward = sum(rewards)
         max_possible = MAX_STEPS * 0.5
         score = max(0.0, min(1.0, total_reward / max_possible if max_possible > 0 else 0.0))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[DEBUG] Task {task_id} error: {e}", flush=True)
+        print(f"[DEBUG] Task {task_id} error: {type(e).__name__}: {e}", flush=True)
 
     finally:
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score
-
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
 async def main() -> None:
-    """Main entry point - handles all errors gracefully."""
-    
-    # Validate API_KEY (validator sets this)
-    if not API_KEY:
-        print("[DEBUG] API_KEY not set - cannot authenticate with LLM API", flush=True)
-        # Still need to emit logs for all tasks
-        for task_id in ["task_1", "task_2", "task_3"]:
-            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-            log_end(success=False, steps=0, rewards=[])
-        return
+    print(f"[DEBUG] API_BASE_URL={API_BASE_URL}", flush=True)
+    print(f"[DEBUG] MODEL_NAME={MODEL_NAME}", flush=True)
+    print(f"[DEBUG] API_KEY set={'yes' if API_KEY else 'NO'}", flush=True)
+    print(f"[DEBUG] IMAGE_NAME={IMAGE_NAME}", flush=True)
 
-    # CRITICAL: Use API_KEY (not HF_TOKEN) for OpenAI client
+    # Initialize client with validator's injected credentials
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    # Import env client
     try:
         from supply_pilot_env.client import SupplyPilotEnv
     except ImportError:
-        try:
-            from client import SupplyPilotEnv  # type: ignore
-        except ImportError:
-            print("[DEBUG] Could not import SupplyPilotEnv", flush=True)
-            for task_id in ["task_1", "task_2", "task_3"]:
-                log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-                log_end(success=False, steps=0, rewards=[])
-            return
+        from client import SupplyPilotEnv  # type: ignore
 
-    env = None
+    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+
     try:
-        # Connect to environment
-        env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
-        
-        # Run all three tasks
         for task_id in ["task_1", "task_2", "task_3"]:
-            try:
-                await run_task(client, env, task_id)
-            except Exception as e:
-                print(f"[DEBUG] Task {task_id} failed: {e}", flush=True)
-                
-    except Exception as e:
-        print(f"[DEBUG] Failed to connect to environment: {e}", flush=True)
-        # Emit logs for all tasks if environment connection failed
-        for task_id in ["task_1", "task_2", "task_3"]:
-            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-            log_end(success=False, steps=0, rewards=[])
-            
+            await run_task(client, env, task_id)
     finally:
-        if env is not None:
-            try:
-                await env.close()
-            except Exception as e:
-                print(f"[DEBUG] env.close() error: {e}", flush=True)
+        try:
+            await env.close()
+        except Exception as e:
+            print(f"[DEBUG] env.close() error: {e}", flush=True)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"[DEBUG] Fatal error: {e}", flush=True)
-        import sys
-        sys.exit(0)
+    asyncio.run(main())
