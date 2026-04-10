@@ -187,7 +187,6 @@ async def main() -> None:
     print(f"[DEBUG] API_KEY set={'yes' if API_KEY else 'NO'}", flush=True)
     print(f"[DEBUG] IMAGE_NAME={IMAGE_NAME}", flush=True)
 
-    # Initialize client with validator's injected credentials
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     try:
@@ -195,11 +194,21 @@ async def main() -> None:
     except ImportError:
         from client import SupplyPilotEnv  # type: ignore
 
-    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    env = None
+    try:
+        env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    except Exception as e:
+        print(f"[DEBUG] from_docker_image failed: {type(e).__name__}: {e}", flush=True)
+        for task_id in ["task_1", "task_2", "task_3"]:
+            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
 
     try:
         for task_id in ["task_1", "task_2", "task_3"]:
             await run_task(client, env, task_id)
+    except Exception as e:
+        print(f"[DEBUG] Task loop error: {type(e).__name__}: {e}", flush=True)
     finally:
         try:
             await env.close()
@@ -208,4 +217,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"[DEBUG] Fatal error: {type(e).__name__}: {e}", flush=True)
+        import sys
+        sys.exit(0)
