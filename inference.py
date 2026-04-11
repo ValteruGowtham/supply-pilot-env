@@ -10,13 +10,14 @@ from typing import List, Optional
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Environment variables — judges inject API_BASE_URL and API_KEY at runtime
+# Environment variables
+# CRITICAL: Validator injects API_KEY, guidelines say HF_TOKEN, support both
 # ---------------------------------------------------------------------------
-API_BASE_URL: str = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME: str = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-# Judges inject API_KEY — read it first, fall back to HF_TOKEN for local testing
-API_KEY: Optional[str] = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-IMAGE_NAME: Optional[str] = os.environ.get("IMAGE_NAME")
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
+# Read API_KEY first (what validator injects), fallback to HF_TOKEN (for local testing)
+API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
 
 BENCHMARK: str = "supply_pilot"
 MAX_STEPS: int = 30
@@ -40,7 +41,7 @@ SYSTEM_PROMPT: str = textwrap.dedent(
 )
 
 # ---------------------------------------------------------------------------
-# Logging helpers — exact format, no deviations
+# Logging helpers
 # ---------------------------------------------------------------------------
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -71,35 +72,37 @@ def build_user_prompt(obs, step: int) -> str:
     )
 
 # ---------------------------------------------------------------------------
-# LLM action — calls the judge's proxy, uses fallback ONLY on JSON parse error
+# LLM action
 # ---------------------------------------------------------------------------
 def get_action(client: OpenAI, obs, step: int) -> dict:
+    """Query LLM for action. This call is tracked by the validator."""
     _FALLBACK = {
         "sku_id": "SKU_A",
         "order_quantity": 100,
         "supplier_id": "primary",
         "expedite": False,
     }
-    # Make the API call — let connection errors propagate so judges see real calls
-    completion = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(obs, step)},
-        ],
-        temperature=TEMPERATURE,
-        max_tokens=MAX_TOKENS,
-        stream=False,
-    )
-    text = completion.choices[0].message.content.strip()
-    # Only catch JSON parse errors — not API errors
+    
     try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": build_user_prompt(obs, step)},
+            ],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            stream=False,
+        )
+        text = completion.choices[0].message.content.strip()
+        
         if text.startswith("```"):
             lines = text.splitlines()
             text = "\n".join(line for line in lines if not line.startswith("```")).strip()
+        
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
-        print(f"[DEBUG] JSON parse failed step={step}, using fallback. text={text[:100]}", flush=True)
+        print(f"[DEBUG] JSON parse failed at step {step}", flush=True)
         return _FALLBACK
 
 # ---------------------------------------------------------------------------
@@ -121,7 +124,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
                 break
 
             obs = result.observation
-            action_dict = get_action(client, obs, step)
+            action_dict = get_action(client, obs, step)  # LLM call happens here
 
             action_str = (
                 f"order={action_dict.get('order_quantity', 0)},"
@@ -158,7 +161,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[DEBUG] Task {task_id} error: {type(e).__name__}: {e}", flush=True)
+        print(f"[DEBUG] Task {task_id} error: {e}", flush=True)
 
     finally:
         log_end(task=task_id, success=success, steps=steps_taken, score=score, rewards=rewards)
@@ -169,13 +172,11 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 # Entry point
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    print(f"[DEBUG] Starting inference", flush=True)
     print(f"[DEBUG] API_BASE_URL={API_BASE_URL}", flush=True)
     print(f"[DEBUG] MODEL_NAME={MODEL_NAME}", flush=True)
     print(f"[DEBUG] API_KEY={'set' if API_KEY else 'NOT SET'}", flush=True)
-    print(f"[DEBUG] IMAGE_NAME={IMAGE_NAME}", flush=True)
 
-    # Initialize OpenAI client pointed at judge's proxy
+    # Initialize OpenAI client - uses validator's proxy
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     try:
@@ -186,24 +187,22 @@ async def main() -> None:
     env = None
     try:
         env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+        
+        for task_id in ["task_1", "task_2", "task_3"]:
+            await run_task(client, env, task_id)
+                
     except Exception as e:
-        print(f"[DEBUG] from_docker_image failed: {type(e).__name__}: {e}", flush=True)
+        print(f"[DEBUG] Environment error: {e}", flush=True)
         for task_id in ["task_1", "task_2", "task_3"]:
             log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
             log_end(task=task_id, success=False, steps=0, score=0.0, rewards=[])
-        return
-
-    try:
-        for task_id in ["task_1", "task_2", "task_3"]:
-            await run_task(client, env, task_id)
-    except Exception as e:
-        print(f"[DEBUG] Task loop error: {type(e).__name__}: {e}", flush=True)
+            
     finally:
-        try:
-            if env is not None:
+        if env is not None:
+            try:
                 await env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+            except Exception as e:
+                print(f"[DEBUG] env.close() error: {e}", flush=True)
 
 
 if __name__ == "__main__":
