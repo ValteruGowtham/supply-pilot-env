@@ -16,7 +16,7 @@ from openai import OpenAI
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
 # Read API_KEY first (what validator injects), fallback to HF_TOKEN (for local testing)
-API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+API_KEY: str = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or "dummy-key-for-proxy"
 IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
 
 BENCHMARK: str = "supply_pilot"
