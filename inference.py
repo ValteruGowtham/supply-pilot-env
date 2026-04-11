@@ -7,16 +7,14 @@ import os
 import json
 import textwrap
 from typing import List, Optional
-
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Environment variables
-# CRITICAL: Use os.environ[] for API_BASE_URL and API_KEY so the validator's
-# injected values are always used. Never fall back to other providers.
+# Environment variables — judges inject API_BASE_URL and API_KEY at runtime
 # ---------------------------------------------------------------------------
 API_BASE_URL: str = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+# Judges inject API_KEY — read it first, fall back to HF_TOKEN for local testing
 API_KEY: Optional[str] = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 IMAGE_NAME: Optional[str] = os.environ.get("IMAGE_NAME")
 
@@ -42,7 +40,7 @@ SYSTEM_PROMPT: str = textwrap.dedent(
 )
 
 # ---------------------------------------------------------------------------
-# Logging helpers
+# Logging helpers — exact format, no deviations
 # ---------------------------------------------------------------------------
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -50,17 +48,11 @@ def log_start(task: str, env: str, model: str) -> None:
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
-        flush=True,
-    )
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Prompt builder
@@ -71,8 +63,7 @@ def build_user_prompt(obs, step: int) -> str:
         f"SKU: {obs.sku_id}\n"
         f"Current stock: {obs.stock_level} units\n"
         f"Today demand: {obs.daily_demand:.1f} units\n"
-        f"Pending orders: {obs.pending_order_units} units arriving in "
-        f"{obs.supplier_lead_time} days\n"
+        f"Pending orders: {obs.pending_order_units} units arriving in {obs.supplier_lead_time} days\n"
         f"Stockout today: {obs.stockout_today}\n"
         f"Supplier disruption active: {obs.disruption_active}\n"
         f"Step: {step} of {MAX_STEPS}\n\n"
@@ -80,7 +71,7 @@ def build_user_prompt(obs, step: int) -> str:
     )
 
 # ---------------------------------------------------------------------------
-# LLM action — logs errors, never silently fails
+# LLM action — calls the judge's proxy, uses fallback ONLY on JSON parse error
 # ---------------------------------------------------------------------------
 def get_action(client: OpenAI, obs, step: int) -> dict:
     _FALLBACK = {
@@ -89,28 +80,26 @@ def get_action(client: OpenAI, obs, step: int) -> dict:
         "supplier_id": "primary",
         "expedite": False,
     }
+    # Make the API call — let connection errors propagate so judges see real calls
+    completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": build_user_prompt(obs, step)},
+        ],
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+        stream=False,
+    )
+    text = completion.choices[0].message.content.strip()
+    # Only catch JSON parse errors — not API errors
     try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": build_user_prompt(obs, step)},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        text = completion.choices[0].message.content.strip()
-        # Strip markdown fences if present
         if text.startswith("```"):
             lines = text.splitlines()
-            text = "\n".join(
-                line for line in lines if not line.startswith("```")
-            ).strip()
+            text = "\n".join(line for line in lines if not line.startswith("```")).strip()
         return json.loads(text)
-    except Exception as e:
-        # Log the actual error so we can debug — do not silently swallow
-        print(f"[DEBUG] LLM call failed step={step}: {type(e).__name__}: {e}", flush=True)
+    except (json.JSONDecodeError, ValueError):
+        print(f"[DEBUG] JSON parse failed step={step}, using fallback. text={text[:100]}", flush=True)
         return _FALLBACK
 
 # ---------------------------------------------------------------------------
@@ -153,10 +142,8 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
             )
 
             result = await env.step(action)
-
             reward = float(result.reward) if result.reward is not None else 0.0
             done = bool(result.done)
-
             rewards.append(reward)
             steps_taken = step
 
@@ -182,11 +169,13 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
 # Entry point
 # ---------------------------------------------------------------------------
 async def main() -> None:
+    print(f"[DEBUG] Starting inference", flush=True)
     print(f"[DEBUG] API_BASE_URL={API_BASE_URL}", flush=True)
     print(f"[DEBUG] MODEL_NAME={MODEL_NAME}", flush=True)
-    print(f"[DEBUG] API_KEY set={'yes' if API_KEY else 'NO'}", flush=True)
+    print(f"[DEBUG] API_KEY={'set' if API_KEY else 'NOT SET'}", flush=True)
     print(f"[DEBUG] IMAGE_NAME={IMAGE_NAME}", flush=True)
 
+    # Initialize OpenAI client pointed at judge's proxy
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     try:
@@ -194,21 +183,11 @@ async def main() -> None:
     except ImportError:
         from client import SupplyPilotEnv  # type: ignore
 
-    env = None
-    try:
-        env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
-    except Exception as e:
-        print(f"[DEBUG] from_docker_image failed: {type(e).__name__}: {e}", flush=True)
-        for task_id in ["task_1", "task_2", "task_3"]:
-            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-            log_end(success=False, steps=0, score=0.0, rewards=[])
-        return
+    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
 
     try:
         for task_id in ["task_1", "task_2", "task_3"]:
             await run_task(client, env, task_id)
-    except Exception as e:
-        print(f"[DEBUG] Task loop error: {type(e).__name__}: {e}", flush=True)
     finally:
         try:
             await env.close()
@@ -220,6 +199,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        print(f"[DEBUG] Fatal error: {type(e).__name__}: {e}", flush=True)
+        print(f"[DEBUG] Fatal: {type(e).__name__}: {e}", flush=True)
         import sys
         sys.exit(0)
