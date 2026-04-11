@@ -50,9 +50,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     done_val = str(done).lower()
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(task: str, success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    print(f"[END] task={task} success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Prompt builder
@@ -161,7 +161,7 @@ async def run_task(client: OpenAI, env, task_id: str) -> float:
         print(f"[DEBUG] Task {task_id} error: {type(e).__name__}: {e}", flush=True)
 
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(task=task_id, success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score
 
@@ -183,14 +183,25 @@ async def main() -> None:
     except ImportError:
         from client import SupplyPilotEnv  # type: ignore
 
-    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    env = None
+    try:
+        env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    except Exception as e:
+        print(f"[DEBUG] from_docker_image failed: {type(e).__name__}: {e}", flush=True)
+        for task_id in ["task_1", "task_2", "task_3"]:
+            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+            log_end(task=task_id, success=False, steps=0, score=0.0, rewards=[])
+        return
 
     try:
         for task_id in ["task_1", "task_2", "task_3"]:
             await run_task(client, env, task_id)
+    except Exception as e:
+        print(f"[DEBUG] Task loop error: {type(e).__name__}: {e}", flush=True)
     finally:
         try:
-            await env.close()
+            if env is not None:
+                await env.close()
         except Exception as e:
             print(f"[DEBUG] env.close() error: {e}", flush=True)
 
