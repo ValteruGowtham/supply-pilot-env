@@ -389,7 +389,9 @@ class SupplyPilotEnvironment(Environment):
                 switch_score = 1.0
             score = (service_score * 0.6) + (switch_score * 0.4)
 
-        return max(0.0, min(1.0, score))
+        # Deep validation expects strict bounds: 0 < score < 1
+        eps = 1e-6
+        return max(eps, min(1.0 - eps, score))
 
     # ------------------------------------------------------------------
     # Task metadata
