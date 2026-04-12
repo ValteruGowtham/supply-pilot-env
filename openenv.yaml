@@ -14,52 +14,14 @@ tasks:
     name: "Single SKU stable demand"
     difficulty: easy
     description: "Manage inventory for one product with fixed daily demand of 50 units. Avoid stockouts over 30 days. Graded on stockout-free days."
-    grader:
-      type: python
-      code: |
-        try:
-          stockout_days = float(getattr(state, "stockout_days", 0.0))
-        except Exception:
-          stockout_days = 0.0
-        raw = 1.0 - (stockout_days / 30.0)
-        if raw != raw:  # NaN guard
-          raw = 0.5
-        return max(0.01, min(0.99, float(raw)))
   - id: task_2
     name: "Multi-SKU seasonal demand"
     difficulty: medium
     description: "Balance inventory across 3 products with variable demand patterns under a 500-unit daily order budget. Graded on weighted fill rate."
-    grader:
-      type: python
-      code: |
-        try:
-          raw = float(getattr(state, "fill_rate", 0.5))
-        except Exception:
-          raw = 0.5
-        if raw != raw:  # NaN guard
-          raw = 0.5
-        return max(0.01, min(0.99, float(raw)))
   - id: task_3
     name: "Supplier disruption response"
     difficulty: hard
     description: "Handle a sudden supplier disruption on day 10 that extends lead time from 3 to 14 days. Agent must detect signal and switch to backup supplier. Graded on service level and supplier switching speed."
-    grader:
-      type: python
-      code: |
-        try:
-          service = float(getattr(state, "fill_rate", 0.5))
-        except Exception:
-          service = 0.5
-        try:
-          switch = float(getattr(state, "supplier_switch_score", 0.5))
-        except Exception:
-          switch = 0.5
-        if service != service:  # NaN guard
-          service = 0.5
-        if switch != switch:  # NaN guard
-          switch = 0.5
-        raw = (0.6 * service) + (0.4 * switch)
-        return max(0.01, min(0.99, float(raw)))
 
 action_space:
   type: object
