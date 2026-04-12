@@ -389,8 +389,9 @@ class SupplyPilotEnvironment(Environment):
                 switch_score = 1.0
             score = (service_score * 0.6) + (switch_score * 0.4)
 
-        # Deep validation expects strict bounds: 0 < score < 1
-        eps = 1e-6
+        # Deep validation expects strict bounds: 0 < score < 1.
+        # Use a practical margin to avoid downstream rounding to 0.0/1.0.
+        eps = 1e-2
         return max(eps, min(1.0 - eps, score))
 
     # ------------------------------------------------------------------

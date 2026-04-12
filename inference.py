@@ -101,7 +101,8 @@ def task_score_from_state(state, task_id: str, supplier_switch_score: Optional[f
         switch_score = 1.0 if supplier_switch_score is None else float(supplier_switch_score)
         score = (service_score * 0.6) + (switch_score * 0.4)
 
-    return max(0.0, min(1.0, score))
+    eps = 1e-2
+    return max(eps, min(1.0 - eps, score))
 
 # ---------------------------------------------------------------------------
 # LLM action — uses module-level client, no broad exception hiding
