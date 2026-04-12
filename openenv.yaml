@@ -14,14 +14,31 @@ tasks:
     name: "Single SKU stable demand"
     difficulty: easy
     description: "Manage inventory for one product with fixed daily demand of 50 units. Avoid stockouts over 30 days. Graded on stockout-free days."
+    grader:
+      type: python
+      source: |
+        raw = 1.0 - (float(state.stockout_days) / 30.0)
+        return max(0.01, min(0.99, raw))
   - id: task_2
     name: "Multi-SKU seasonal demand"
     difficulty: medium
     description: "Balance inventory across 3 products with variable demand patterns under a 500-unit daily order budget. Graded on weighted fill rate."
+    grader:
+      type: python
+      source: |
+        raw = float(state.fill_rate)
+        return max(0.01, min(0.99, raw))
   - id: task_3
     name: "Supplier disruption response"
     difficulty: hard
     description: "Handle a sudden supplier disruption on day 10 that extends lead time from 3 to 14 days. Agent must detect signal and switch to backup supplier. Graded on service level and supplier switching speed."
+    grader:
+      type: python
+      source: |
+        # Fallback-safe strict interior score from available state fields.
+        service = float(state.fill_rate)
+        raw = service
+        return max(0.01, min(0.99, raw))
 
 action_space:
   type: object
