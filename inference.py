@@ -12,16 +12,10 @@ from openai import OpenAI
 # ---------------------------------------------------------------------------
 # Environment variables — validator-injected values must be used
 # ---------------------------------------------------------------------------
-API_BASE_URL = os.getenv("API_BASE_URL")
-API_KEY = os.getenv("API_KEY")
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY = os.environ["API_KEY"]
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 IMAGE_NAME = os.getenv("IMAGE_NAME")
-
-if API_BASE_URL is None:
-    raise ValueError("API_BASE_URL environment variable is required")
-
-if API_KEY is None:
-    raise ValueError("API_KEY environment variable is required")
 
 # Initialize OpenAI client exactly as shown in official guidelines
 client = OpenAI(
