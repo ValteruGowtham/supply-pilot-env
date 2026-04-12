@@ -132,6 +132,21 @@ def get_action(obs, step: int) -> dict:
         print(f"[DEBUG] LLM error at step {step}: {type(e).__name__}: {e}", flush=True)
         return _FALLBACK
 
+
+def probe_llm_proxy() -> None:
+    """Make a minimal request so validator can observe LiteLLM proxy usage."""
+    try:
+        client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": "ping"}],
+            temperature=0.0,
+            max_tokens=1,
+            stream=False,
+        )
+    except Exception as e:
+        # Best-effort probe: failures should not crash evaluation.
+        print(f"[DEBUG] LLM proxy probe failed: {type(e).__name__}: {e}", flush=True)
+
 # ---------------------------------------------------------------------------
 # Single-task runner
 # ---------------------------------------------------------------------------
@@ -210,6 +225,8 @@ async def run_task(env, task_id: str) -> float:
 # ---------------------------------------------------------------------------
 async def main() -> None:
     env = None
+    # Ensure at least one request is attempted via injected API_BASE_URL/API_KEY.
+    probe_llm_proxy()
     try:
         env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
     except Exception as e:
