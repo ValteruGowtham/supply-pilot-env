@@ -190,8 +190,8 @@ async def run_task(env, task_id: str) -> float:
 
             result = await env.step(action)
             raw_reward = float(result.reward) if result.reward is not None else 0.0
-            # Keep logged rewards strictly inside (0, 1) for validator parsing.
-            reward = 0.01
+            # Clamp reward to strict (0, 1) bounds
+            reward = max(0.01, min(0.99, raw_reward))
             done = bool(result.done)
             rewards.append(reward)
             steps_taken = step

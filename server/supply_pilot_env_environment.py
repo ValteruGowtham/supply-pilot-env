@@ -29,7 +29,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # CRITICAL: Epsilon for strict score bounds (0, 1) - NEVER 0.0 or 1.0
 # ---------------------------------------------------------------------------
-SCORE_EPSILON = 0.05  # 5% margin from boundaries
+SCORE_EPSILON = 0.01
 MIN_SCORE = SCORE_EPSILON
 MAX_SCORE = 1.0 - SCORE_EPSILON
 
