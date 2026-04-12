@@ -184,9 +184,9 @@ class SupplyPilotEnvironment(Environment):
             step_count=0,
             day=0,
             total_reward=0.0,
-            stockout_days=1.0,
+            stockout_days=0,
             total_holding_cost=0.0,
-            fill_rate=0.95,
+            fill_rate=1.0,
             disruption_active=False,
             units_demanded_total=0.0,
             units_fulfilled_total=0.0,
@@ -297,18 +297,12 @@ class SupplyPilotEnvironment(Environment):
         self._state.units_fulfilled_total = self._units_fulfilled_total
 
         if self._units_demanded_total > 0:
-            raw_fill_rate = self._units_fulfilled_total / self._units_demanded_total
-            bounded_fill_rate = max(0.05, min(0.95, raw_fill_rate))
-            # Keep totals consistent with bounded fill-rate to support validators
-            # that recompute score from cumulative demand/fulfillment fields.
-            self._units_fulfilled_total = bounded_fill_rate * self._units_demanded_total
-            self._state.units_fulfilled_total = self._units_fulfilled_total
-            self._state.fill_rate = bounded_fill_rate
+            self._state.fill_rate = (
+                self._units_fulfilled_total / self._units_demanded_total
+            )
 
         if any_stockout:
-            # Keep metric in an interior range so external formula-based
-            # validators produce scores strictly inside (0, 1).
-            self._state.stockout_days += 0.95
+            self._state.stockout_days += 1
 
         # Accumulate holding cost for SKU_A
         self._state.total_holding_cost += holding_cost_per_sku.get("SKU_A", 0.0)
@@ -320,10 +314,13 @@ class SupplyPilotEnvironment(Environment):
         done = self._day >= self._episode_length
 
         if done:
-            completion_bonus = 1.0 if self._state.fill_rate > 0.95 else 0.0
-            step_reward = max(-1.0, min(1.0, step_reward + completion_bonus))
+            # Terminal reward is the task score, strictly in (0, 1).
+            step_reward = self.get_score()
 
-        self._state.total_reward += step_reward
+        # Keep total_reward bounded as running average in (0, 1) to avoid
+        # downstream parser ambiguity around "score-like" fields.
+        n = max(1, self._state.step_count)
+        self._state.total_reward = ((self._state.total_reward * (n - 1)) + step_reward) / n
 
         # ------------------------------------------------------------------ #
         # 9. BUILD OBSERVATION                                                 #
@@ -509,4 +506,7 @@ class SupplyPilotEnvironment(Environment):
         avg_holding = total_holding / n
 
         step_reward = (avg_service * 0.5) + avg_stockout - avg_holding
-        return max(-1.0, min(1.0, step_reward)), any_stockout
+        # Normalize from [-1, 1] to (0, 1) and keep strict interior range.
+        normalized = (max(-1.0, min(1.0, step_reward)) + 1.0) / 2.0
+        eps = 1e-2
+        return max(eps, min(1.0 - eps, normalized)), any_stockout

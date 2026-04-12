@@ -126,8 +126,8 @@ class SupplyState(State):
         default=0.0,
         description="Cumulative reward accumulated since episode start.",
     )
-    stockout_days: float = Field(
-        default=1.0,
+    stockout_days: int = Field(
+        default=0,
         description="Number of days in this episode where a stockout occurred.",
     )
     total_holding_cost: float = Field(
