@@ -315,7 +315,7 @@ class SupplyPilotEnvironment(Environment):
 
         if done:
             completion_bonus = 1.0 if self._state.fill_rate > 0.95 else 0.0
-            step_reward = max(-1.0, min(1.0, step_reward + completion_bonus))
+            step_reward = max(-0.99, min(0.99, step_reward + completion_bonus))
 
         self._state.total_reward += step_reward
 
@@ -502,4 +502,4 @@ class SupplyPilotEnvironment(Environment):
         avg_holding = total_holding / n
 
         step_reward = (avg_service * 0.5) + avg_stockout - avg_holding
-        return max(-1.0, min(1.0, step_reward)), any_stockout
+        return max(-0.99, min(0.99, step_reward)), any_stockout

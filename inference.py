@@ -12,8 +12,8 @@ from openai import OpenAI
 # ---------------------------------------------------------------------------
 # Environment variables — validator-injected values must be used
 # ---------------------------------------------------------------------------
-API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY = os.environ["API_KEY"]
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 IMAGE_NAME = os.getenv("IMAGE_NAME")
 
