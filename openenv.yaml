@@ -16,7 +16,7 @@ tasks:
     description: "Manage inventory for one product with fixed daily demand of 50 units. Avoid stockouts over 30 days. Graded on stockout-free days."
     grader:
       type: python
-      source: |
+      code: |
         raw = 1.0 - (float(state.stockout_days) / 30.0)
         return max(0.01, min(0.99, raw))
   - id: task_2
@@ -25,7 +25,7 @@ tasks:
     description: "Balance inventory across 3 products with variable demand patterns under a 500-unit daily order budget. Graded on weighted fill rate."
     grader:
       type: python
-      source: |
+      code: |
         raw = float(state.fill_rate)
         return max(0.01, min(0.99, raw))
   - id: task_3
@@ -34,7 +34,7 @@ tasks:
     description: "Handle a sudden supplier disruption on day 10 that extends lead time from 3 to 14 days. Agent must detect signal and switch to backup supplier. Graded on service level and supplier switching speed."
     grader:
       type: python
-      source: |
+      code: |
         # Fallback-safe strict interior score from available state fields.
         service = float(state.fill_rate)
         raw = service
