@@ -27,14 +27,6 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# CRITICAL: Epsilon for strict score bounds (0, 1) - NEVER 0.0 or 1.0
-# ---------------------------------------------------------------------------
-SCORE_EPSILON = 0.01
-MIN_SCORE = SCORE_EPSILON
-MAX_SCORE = 1.0 - SCORE_EPSILON
-
-
-# ---------------------------------------------------------------------------
 # Task catalogue
 # ---------------------------------------------------------------------------
 
@@ -151,8 +143,6 @@ class SupplyPilotEnvironment(Environment):
             episode_id=str(uuid.uuid4()),
             step_count=0,
             day=0,
-            total_reward=MIN_SCORE,
-            fill_rate=MAX_SCORE,
         )
 
     # ------------------------------------------------------------------
@@ -193,10 +183,10 @@ class SupplyPilotEnvironment(Environment):
             episode_id=episode_id,
             step_count=0,
             day=0,
-            total_reward=MIN_SCORE,
+            total_reward=0.0,
             stockout_days=0,
             total_holding_cost=0.0,
-            fill_rate=MAX_SCORE,
+            fill_rate=1.0,
             disruption_active=False,
             units_demanded_total=0.0,
             units_fulfilled_total=0.0,
@@ -213,7 +203,7 @@ class SupplyPilotEnvironment(Environment):
             holding_cost_today=0.0,
             disruption_active=False,
             done=False,
-            reward=MIN_SCORE,
+            reward=0.0,
             message="Episode started",
         )
 
@@ -307,11 +297,9 @@ class SupplyPilotEnvironment(Environment):
         self._state.units_fulfilled_total = self._units_fulfilled_total
 
         if self._units_demanded_total > 0:
-            fill_rate_raw = self._units_fulfilled_total / self._units_demanded_total
-            # Clamp fill_rate to strict bounds
-            self._state.fill_rate = max(MIN_SCORE, min(MAX_SCORE, fill_rate_raw))
-        else:
-            self._state.fill_rate = MAX_SCORE
+            self._state.fill_rate = (
+                self._units_fulfilled_total / self._units_demanded_total
+            )
 
         if any_stockout:
             self._state.stockout_days += 1
@@ -326,16 +314,10 @@ class SupplyPilotEnvironment(Environment):
         done = self._day >= self._episode_length
 
         if done:
-            # Terminal reward is the bounded task score
-            step_reward = self.get_score()
+            completion_bonus = 1.0 if self._state.fill_rate > 0.95 else 0.0
+            step_reward = max(-1.0, min(1.0, step_reward + completion_bonus))
 
-        # Clamp step_reward to strict bounds before accumulating
-        step_reward = max(MIN_SCORE, min(MAX_SCORE, step_reward))
-        
-        # Update total_reward as running average (also bounded)
-        n = max(1, self._state.step_count)
-        total_raw = ((self._state.total_reward * (n - 1)) + step_reward) / n
-        self._state.total_reward = max(MIN_SCORE, min(MAX_SCORE, total_raw))
+        self._state.total_reward += step_reward
 
         # ------------------------------------------------------------------ #
         # 9. BUILD OBSERVATION                                                 #
@@ -380,40 +362,34 @@ class SupplyPilotEnvironment(Environment):
         return self._state
 
     # ------------------------------------------------------------------
-    # Scoring - CRITICAL: Must return strictly in (0, 1)
+    # Scoring
     # ------------------------------------------------------------------
 
     def get_score(self) -> float:
         """
-        Compute end-of-episode score in STRICT (0.0, 1.0) bounds.
+        Compute end-of-episode score in [0.0, 1.0].
 
         Returns:
-            Scalar score appropriate for the current task, NEVER 0.0 or 1.0
+            Scalar score appropriate for the current task.
         """
         if self._task_id == "task_1":
-            raw_score = 1.0 - (self._state.stockout_days / self._episode_length)
+            score = 1.0 - (self._state.stockout_days / self._episode_length)
 
         elif self._task_id == "task_2":
-            raw_score = self._state.fill_rate
+            score = self._state.fill_rate
 
         else:  # task_3
             service_score = self._state.fill_rate
             if self._days_after_disruption > 0:
-                switch_raw = 1.0 - (
+                switch_score = 1.0 - (
                     self._days_primary_used_after_disruption
                     / self._days_after_disruption
                 )
-                switch_score = max(MIN_SCORE, min(MAX_SCORE, switch_raw))
             else:
-                switch_score = MAX_SCORE
-            
-            raw_score = (service_score * 0.6) + (switch_score * 0.4)
+                switch_score = 1.0
+            score = (service_score * 0.6) + (switch_score * 0.4)
 
-        # TRIPLE CLAMP to ensure strict bounds (paranoid but necessary)
-        score = max(MIN_SCORE, min(MAX_SCORE, raw_score))
-        score = max(MIN_SCORE, min(MAX_SCORE, score))  # Yes, twice!
-        
-        return score
+        return max(0.0, min(1.0, score))
 
     # ------------------------------------------------------------------
     # Task metadata
@@ -494,10 +470,10 @@ class SupplyPilotEnvironment(Environment):
         cfg: Dict[str, Any],
     ):
         """
-        Compute the per-step reward with STRICT bounds (0, 1).
+        Compute the per-step reward averaged across all SKUs.
 
         Returns:
-            Tuple of (step_reward strictly in (0, 1), any_stockout bool).
+            Tuple of (step_reward clamped to [-1, 1], any_stockout bool).
         """
         skus = cfg["skus"]
         total_service = 0.0
@@ -524,11 +500,4 @@ class SupplyPilotEnvironment(Environment):
         avg_holding = total_holding / n
 
         step_reward = (avg_service * 0.5) + avg_stockout - avg_holding
-        
-        # Normalize from [-1, 1] to [0, 1]
-        normalized = (max(-1.0, min(1.0, step_reward)) + 1.0) / 2.0
-        
-        # Clamp to strict bounds
-        bounded = max(MIN_SCORE, min(MAX_SCORE, normalized))
-        
-        return bounded, any_stockout
+        return max(-1.0, min(1.0, step_reward)), any_stockout
