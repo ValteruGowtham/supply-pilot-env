@@ -151,6 +151,8 @@ class SupplyPilotEnvironment(Environment):
             episode_id=str(uuid.uuid4()),
             step_count=0,
             day=0,
+            total_reward=MIN_SCORE,
+            fill_rate=MAX_SCORE,
         )
 
     # ------------------------------------------------------------------
@@ -191,10 +193,10 @@ class SupplyPilotEnvironment(Environment):
             episode_id=episode_id,
             step_count=0,
             day=0,
-            total_reward=0.0,
+            total_reward=MIN_SCORE,
             stockout_days=0,
             total_holding_cost=0.0,
-            fill_rate=1.0,
+            fill_rate=MAX_SCORE,
             disruption_active=False,
             units_demanded_total=0.0,
             units_fulfilled_total=0.0,
@@ -211,7 +213,7 @@ class SupplyPilotEnvironment(Environment):
             holding_cost_today=0.0,
             disruption_active=False,
             done=False,
-            reward=0.0,
+            reward=MIN_SCORE,
             message="Episode started",
         )
 

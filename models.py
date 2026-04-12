@@ -123,7 +123,7 @@ class SupplyState(State):
         description="Current simulation day.",
     )
     total_reward: float = Field(
-        default=0.0,
+        default=0.01,
         description="Cumulative reward accumulated since episode start.",
     )
     stockout_days: int = Field(
@@ -135,7 +135,7 @@ class SupplyState(State):
         description="Sum of holding costs incurred across all days so far.",
     )
     fill_rate: float = Field(
-        default=1.0,
+        default=0.99,
         description="Fraction of demand fulfilled so far (units_fulfilled / units_demanded).",
     )
     disruption_active: bool = Field(
