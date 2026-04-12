@@ -36,16 +36,17 @@ fi
 
 # ── Check 3: openenv.yaml present (openenv validate proxy) ─────────────────
 YAML="$PROJECT_DIR/openenv.yaml"
-VENV_OPENENV="$(dirname "$0")/../openenv_venv/bin/openenv"
-OPENENV_CMD=""
-if command -v openenv &>/dev/null; then
-    OPENENV_CMD="openenv"
-elif [ -x "$VENV_OPENENV" ]; then
-    OPENENV_CMD="$VENV_OPENENV"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_OPENENV="$SCRIPT_DIR/../openenv_venv/bin/openenv"
+OPENENV_CMD=()
+if [ -x "$VENV_OPENENV" ]; then
+    OPENENV_CMD=("$VENV_OPENENV")
+elif command -v openenv &>/dev/null; then
+    OPENENV_CMD=("openenv")
 fi
 
-if [ -f "$YAML" ] && [ -n "$OPENENV_CMD" ]; then
-    $OPENENV_CMD validate "$PROJECT_DIR" &>/dev/null && \
+if [ -f "$YAML" ] && [ ${#OPENENV_CMD[@]} -gt 0 ]; then
+    "${OPENENV_CMD[@]}" validate "$PROJECT_DIR" &>/dev/null && \
         echo "PASSED -- openenv validate passed" && PASS=$((PASS + 1)) || \
         { echo "FAILED -- openenv validate failed"; FAIL=$((FAIL + 1)); }
 elif [ -f "$YAML" ]; then

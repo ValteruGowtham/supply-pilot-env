@@ -92,6 +92,20 @@ def build_user_prompt(obs, step: int) -> str:
         f"What is your reorder decision? Respond with JSON only."
     )
 
+
+def task_score_from_state(state, task_id: str, supplier_switch_score: Optional[float] = None) -> float:
+    """Compute task score from environment state to match grader logic."""
+    if task_id == "task_1":
+        score = 1.0 - (float(getattr(state, "stockout_days", 0)) / float(MAX_STEPS))
+    elif task_id == "task_2":
+        score = float(getattr(state, "fill_rate", 0.0))
+    else:  # task_3
+        service_score = float(getattr(state, "fill_rate", 0.0))
+        switch_score = 1.0 if supplier_switch_score is None else float(supplier_switch_score)
+        score = (service_score * 0.6) + (switch_score * 0.4)
+
+    return max(0.0, min(1.0, score))
+
 # ---------------------------------------------------------------------------
 # LLM action — uses module-level client, no broad exception hiding
 # ---------------------------------------------------------------------------
@@ -111,7 +125,8 @@ def get_action(obs, step: int) -> dict:
         text = completion.choices[0].message.content.strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            text = "\n".join(line for line in lines if not line.startswith("```")).strip()
+            text = "\n".join(line for line in lines if not line.startswith("```"))
+            text = text.strip()
         return json.loads(text)
     except json.JSONDecodeError:
         print(f"[DEBUG] JSON parse error at step {step}", flush=True)
@@ -127,6 +142,8 @@ async def run_task(env, task_id: str) -> float:
     rewards: List[float] = []
     steps_taken: int = 0
     success: bool = False
+    post_disruption_days: int = 0
+    primary_after_disruption_days: int = 0
 
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
@@ -139,6 +156,11 @@ async def run_task(env, task_id: str) -> float:
 
             obs = result.observation
             action_dict = get_action(obs, step)
+
+            if task_id == "task_3" and int(getattr(obs, "day", 0)) >= 10:
+                post_disruption_days += 1
+                if str(action_dict.get("supplier_id", "primary")) == "primary":
+                    primary_after_disruption_days += 1
 
             action_str = (
                 f"order={action_dict.get('order_quantity', 0)},"
@@ -164,9 +186,19 @@ async def run_task(env, task_id: str) -> float:
             if done:
                 break
 
-        score = sum(rewards) / (MAX_STEPS * 0.5)
-        score = max(0.0, min(1.0, score))
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        try:
+            state = await env.state()
+            switch_score = 1.0
+            if task_id == "task_3" and post_disruption_days > 0:
+                switch_score = 1.0 - (primary_after_disruption_days / post_disruption_days)
+
+            score = task_score_from_state(state, task_id, supplier_switch_score=switch_score)
+            success = score >= SUCCESS_SCORE_THRESHOLD
+        except Exception as e:
+            print(f"[DEBUG] state() error at task {task_id}: {type(e).__name__}: {e}", flush=True)
+            score = sum(rewards) / (MAX_STEPS * 0.5)
+            score = max(0.0, min(1.0, score))
+            success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
         print(f"[DEBUG] Task {task_id} error: {type(e).__name__}: {e}", flush=True)
