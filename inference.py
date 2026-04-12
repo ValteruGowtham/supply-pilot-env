@@ -69,12 +69,9 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     done_val = str(done).lower()
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
-def log_end(success: bool, steps: int, rewards: List[float], score: float) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
-        flush=True,
-    )
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Prompt builder
@@ -158,7 +155,6 @@ async def run_task(env, task_id: str) -> float:
     rewards: List[float] = []
     steps_taken: int = 0
     success: bool = False
-    final_score: float = 0.01
     post_disruption_days: int = 0
     primary_after_disruption_days: int = 0
 
@@ -212,13 +208,11 @@ async def run_task(env, task_id: str) -> float:
                 switch_score = 1.0 - (primary_after_disruption_days / post_disruption_days)
 
             score = task_score_from_state(state, task_id, supplier_switch_score=switch_score)
-            final_score = max(0.01, min(0.99, float(score)))
             success = score >= SUCCESS_SCORE_THRESHOLD
         except Exception as e:
             print(f"[DEBUG] state() error at task {task_id}: {type(e).__name__}: {e}", flush=True)
             score = sum(rewards) / (MAX_STEPS * 0.5)
             score = max(1e-2, min(1.0 - 1e-2, score))
-            final_score = max(0.01, min(0.99, float(score)))
             success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
@@ -230,9 +224,7 @@ async def run_task(env, task_id: str) -> float:
             rewards.append(0.01)
             if steps_taken == 0:
                 steps_taken = 1
-        if final_score <= 0.0 or final_score >= 1.0:
-            final_score = max(0.01, min(0.99, sum(rewards) / max(1, len(rewards))))
-        log_end(success=success, steps=steps_taken, rewards=rewards, score=final_score)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
     return sum(rewards)
 
@@ -249,7 +241,7 @@ async def main() -> None:
         print(f"[DEBUG] from_docker_image error: {type(e).__name__}: {e}", flush=True)
         for task_id in ["task_1", "task_2", "task_3"]:
             log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-            log_end(success=False, steps=1, score=0.01, rewards=[0.01])
+            log_end(success=False, steps=1, rewards=[0.01])
         return
 
     try:
