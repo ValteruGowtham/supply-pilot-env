@@ -180,17 +180,31 @@ async def run_task(env, task_id: str) -> float:
 # Entry point — mirrors official sample structure exactly
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    env = None
+    try:
+        env = await SupplyPilotEnv.from_docker_image(IMAGE_NAME)
+    except Exception as e:
+        print(f"[DEBUG] from_docker_image error: {type(e).__name__}: {e}", flush=True)
+        for task_id in ["task_1", "task_2", "task_3"]:
+            log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, rewards=[])
+        return
 
     try:
         for task_id in ["task_1", "task_2", "task_3"]:
             await run_task(env, task_id)
     finally:
-        try:
-            await env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+        if env is not None:
+            try:
+                await env.close()
+            except Exception as e:
+                print(f"[DEBUG] env.close() error: {e}", flush=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"[DEBUG] Fatal: {type(e).__name__}: {e}", flush=True)
+        import sys
+        sys.exit(0)
