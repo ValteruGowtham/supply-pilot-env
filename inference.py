@@ -210,7 +210,7 @@ async def run_task(env, task_id: str) -> float:
         except Exception as e:
             print(f"[DEBUG] state() error at task {task_id}: {type(e).__name__}: {e}", flush=True)
             score = sum(rewards) / (MAX_STEPS * 0.5)
-            score = max(0.0, min(1.0, score))
+            score = max(1e-2, min(1.0 - 1e-2, score))
             success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
